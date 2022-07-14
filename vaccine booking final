@@ -1,0 +1,130 @@
+--count appointment/replicate looker
+select
+    date_trunc('month',appointment_created_date_eastern) as month,
+    count(distinct appointment_id)
+from cistern.appointment.appointment_summary appt
+where appt.is_created_appointment=True
+    and appt.is_covid_vaccine_booking = 1
+    and appointment_created_date_eastern >= '2022-01-01'
+    and is_provider_owned_property = TRUE
+group by date_trunc('month',appointment_created_date_eastern)
+order by date_trunc('month',appointment_created_date_eastern) DESC
+
+
+--check if there are app appointment since page_event table doesn't include app: there are app appt but only single digit
+select
+    date_trunc('month',appointment_created_date_eastern) as month,
+    platform,
+    count(distinct appointment_id)
+from cistern.appointment.appointment_summary appt
+where appt.is_created_appointment=True
+    and appt.is_covid_vaccine_booking = 1
+    and appointment_created_date_eastern >= '2022-01-01'
+group by date_trunc('month',appointment_created_date_eastern),platform
+order by date_trunc('month',appointment_created_date_eastern) DESC,platform
+
+
+--number of sessions for vaccine by referrer type
+select 
+    date_trunc('month',timestamp_utc) as month,
+    platform,
+    case 
+        when REFERRER_TYPE_QUERY_PARAMETER IN ('PatientHome','patientHome') then 'patienthome' 
+        else REFERRER_TYPE_QUERY_PARAMETER
+    end as referrer_type,
+    count(distinct session_id) as session_ct
+from cistern.user_behavior.page_event
+where trigger_type = 'pageview'
+    and CURRENT_URL_PATH ilike '/vaccine'
+    and timestamp_utc >= '2022-01-01'
+group by 1,2,3
+order by 
+    date_trunc('month',timestamp_utc) DESC,
+    platform,
+    case 
+        when REFERRER_TYPE_QUERY_PARAMETER IN ('PatientHome','patientHome') then 'patienthome' 
+        else REFERRER_TYPE_QUERY_PARAMETER
+    end
+
+--how many appointments came out of those sessions 
+use cistern;
+create temp table vaccine_sessions as 
+select 
+    distinct session_id,
+    date_trunc('month',timestamp_utc) as month,
+    platform,
+    case 
+        when REFERRER_TYPE_QUERY_PARAMETER IN ('PatientHome','patientHome') then 'patienthome' 
+        else REFERRER_TYPE_QUERY_PARAMETER
+    end as referrer_type
+from cistern.user_behavior.page_event
+where trigger_type = 'pageview'
+    and CURRENT_URL_PATH ilike '/vaccine'
+    and timestamp_utc >= '2022-01-01';
+
+select 
+count(*),
+count(distinct session_id)
+from vaccine_sessions limit 10;
+
+select
+    vs.month,
+    vs.platform,
+    vs.referrer_type,
+    count(distinct appointment_id) as appt_ct
+from vaccine_sessions vs
+left join cistern.appointment.appointment_summary appt
+    on vs.session_id = appt.session_id
+    and appt.is_created_appointment = TRUE
+    and appt.is_covid_vaccine_booking = TRUE
+group by 1,2,3
+order by month desc, platform, referrer_type
+
+
+--check sessions without a vaccine pageview? which is a lot
+select
+    appt.session_id,
+    appt.appointment_id,
+    vs.session_id
+from cistern.appointment.appointment_summary appt
+left join vaccine_sessions vs
+    on vs.session_id = appt.session_id
+where
+    appointment_created_date_eastern >= '2022-07-01'
+    and vs.session_id IS NULL and appt.session_id IS NOT NULL
+    and appt.is_created_appointment = TRUE
+    and appt.is_covid_vaccine_booking = TRUE
+
+--spot check one session
+select
+is_covid_vaccine_booking
+from cistern.appointment.appointment_summary
+where appointment_id = 'app_ebe164c5-d8f7-4c5e-9935-c15e747a7f99'
+
+
+select 
+    timestamp_utc,
+    platform,
+    case 
+        when REFERRER_TYPE_QUERY_PARAMETER IN ('PatientHome','patientHome') then 'patienthome' 
+        else REFERRER_TYPE_QUERY_PARAMETER
+    end as referrer_type,
+    current_url_path
+from cistern.user_behavior.page_event
+where 
+    --trigger_type = 'pageview'
+    --and 
+    session_id = 'dc81974399dc41fb800d86a15328b6d1'
+
+
+--number of total patient home sessions in july
+--to calculate click through rate
+select 
+    platform,
+    count(distinct session_id)
+from cistern.user_behavior.page_event
+where trigger_type = 'pageview'
+and CURRENT_URL_PATH ilike '/patient/medicalteam'
+and timestamp_utc >= '2022-07-01'
+group by 1;
+
